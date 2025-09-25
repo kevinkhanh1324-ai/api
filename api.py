@@ -11,6 +11,7 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 import jwt
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jwt import DecodeError as JWTError
 
 # ---------- Configuration ----------
 security = HTTPBearer()
@@ -217,16 +218,16 @@ def login(payload: AuthIn, background_tasks: BackgroundTasks, session: Session =
     return {"access_token": token, "token_type": "bearer"}
 
 @app.post('/api/auth/forgot-password')
-def forgot_password(email: str = Form(...), session: Session = Depends(get_session)):
+def forgot_password(background_tasks: BackgroundTasks, email: str = Form(...), session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.email == email)).first()
     if not user:
         return {"msg": "If the email exists, a reset link was sent"}
     reset_token = create_access_token({"user_id": user.id, "pw": True}, expires_delta=timedelta(minutes=15))
-    asyncio.create_task(audit(user.id, "forgot_password"))
+    background_tasks.add_task(audit, user.id, "forgot_password")
     return {"reset_token": reset_token}
 
 @app.put('/api/auth/reset-password')
-def reset_password(payload: ResetPasswordIn, session: Session = Depends(get_session)):
+def reset_password(payload: ResetPasswordIn, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     try:
         payload_decoded = jwt.decode(payload.token, SECRET_KEY, algorithms=[ALGORITHM])
     except Exception:
@@ -239,7 +240,7 @@ def reset_password(payload: ResetPasswordIn, session: Session = Depends(get_sess
         raise HTTPException(status_code=404, detail='User not found')
     user.hashed_password = hash_password(payload.newPassword)
     session.add(user); session.commit()
-    asyncio.create_task(audit(user.id, "reset_password"))
+    background_tasks.add_task(audit, user.id, "reset_password")
     return {"msg": "Password updated"}
 
 # ---------- Parent APIs ----------
@@ -247,7 +248,7 @@ def reset_password(payload: ResetPasswordIn, session: Session = Depends(get_sess
 def parent_dashboard(user: User = Depends(require_role('parent')), session: Session = Depends(get_session)):
     children = session.exec(select(Child).where(Child.parent_id == user.id)).all()
     child_ids = [c.id for c in children] if children else [0]
-    alerts = session.exec(select(Alert).where(Alert.child_id.in_(child_ids)).order_by(Alert.created_at.desc())).limit(10).all()
+    alerts = session.exec(select(Alert).where(Alert.child_id.in_(child_ids)).order_by(Alert.created_at.desc()).limit(10)).all()
     return {"children": children, "recent_alerts": alerts}
 
 @app.get('/api/parent/children/{child_id}')
