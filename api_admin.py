@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Form, BackgroundTasks
 from sqlmodel import Session, select
 from typing import Optional
 from models import User, ClassRoom, Camera, DangerZone, Alert, RegisterIn, Child
-from api import get_session, require_role, audit, hash_password
-# from apiSQL import get_session, require_role, audit, hash_password
+# from api import get_session, require_role, audit, hash_password
+from apiSQL import get_session, require_role, audit, hash_password
 import asyncio
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
