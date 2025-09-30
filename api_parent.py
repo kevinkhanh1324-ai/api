@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 from typing import List, Optional
 from models import User, Child, Alert
-from api import get_session, require_role
-# from apiSQL import get_session, require_role
+# from api import get_session, require_role
+from apiSQL import get_session, require_role
 
 router = APIRouter(prefix="/api/parent", tags=["Parent"])
 
