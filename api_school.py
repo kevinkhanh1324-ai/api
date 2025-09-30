@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Form
 from sqlmodel import Session, select
 from typing import Optional
 from models import User, ClassRoom, Camera, Child
-from api import get_session, require_role
-# from apiSQL import get_session, require_role
+# from api import get_session, require_role
+from apiSQL import get_session, require_role
 
 router = APIRouter(prefix="/api/school", tags=["School"])
 
