@@ -15,6 +15,10 @@ import json
 import io
 import base64
 import time
+import logging
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 # Try to import qrcode, fallback to simple text if not available
 try:
@@ -201,28 +205,21 @@ def create_paypos_payment(
             detail="You already have an active package. Please wait for it to expire or contact admin"
         )
     
-    # Check for any pending payment for same package (not just recent ones)
+    # Check for ANY pending payment for this user (not just same package)
     existing_pending = session.exec(
         select(Payment).where(
             Payment.user_id == user_id,
-            Payment.package_id == package_id,
             Payment.status == "Pending"
         )
     ).first()
     
     if existing_pending:
-        # Return existing payment instead of creating new one
-        logger.info(f"Found existing pending payment {existing_pending.id} for user {user_id}, package {package_id}")
-        return {
-            "payment_id": existing_pending.id,
-            "amount": existing_pending.amount,
-            "package_name": package.name,
-            "payment_url": f"https://demo-paypos.com/payment/{existing_pending.transaction_id}",
-            "order_id": existing_pending.transaction_id,
-            "status": "redirect_to_paypos",
-            "demo": True,
-            "message": "Using existing pending payment"
-        }
+        # Block new payment creation if user has any pending payment
+        logger.info(f"Found existing pending payment {existing_pending.id} for user {user_id}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Bạn đã có một giao dịch đang chờ thanh toán (ID: {existing_pending.id}). Vui lòng hoàn tất hoặc hủy giao dịch đó trước khi tạo giao dịch mới."
+        )
     
     # Cleanup old pending payments for this user (older than 30 minutes)
     cutoff_time = datetime.utcnow() - timedelta(minutes=30)
@@ -654,19 +651,69 @@ def cancel_user_pending_payments(
         ).all()
         
         count = 0
+        cancelled_payments = []
         for payment in pending_payments:
             payment.status = "Cancelled"
             session.add(payment)
+            cancelled_payments.append({
+                "payment_id": payment.id,
+                "transaction_id": payment.transaction_id,
+                "amount": payment.amount,
+                "package_id": payment.package_id
+            })
             count += 1
         
         session.commit()
         
         return {
             "success": True,
-            "message": f"Cancelled {count} pending payments",
-            "count": count
+            "message": f"Đã hủy {count} giao dịch đang chờ",
+            "count": count,
+            "cancelled_payments": cancelled_payments
         }
         
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# --- CANCEL SPECIFIC PENDING PAYMENT ---
+@router.post("/cancel/{payment_id}")
+def cancel_specific_pending_payment(
+    payment_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Cancel a specific pending payment for current user"""
+    try:
+        # Find the specific payment
+        payment = session.exec(
+            select(Payment).where(
+                Payment.id == payment_id,
+                Payment.user_id == current_user.id,
+                Payment.status == "Pending"
+            )
+        ).first()
+        
+        if not payment:
+            raise HTTPException(
+                status_code=404, 
+                detail="Không tìm thấy giao dịch đang chờ hoặc bạn không có quyền hủy giao dịch này"
+            )
+        
+        # Cancel the payment
+        payment.status = "Cancelled"
+        session.add(payment)
+        session.commit()
+        
+        return {
+            "success": True,
+            "message": f"Đã hủy giao dịch {payment_id}",
+            "payment_id": payment.id,
+            "transaction_id": payment.transaction_id,
+            "amount": payment.amount
+        }
+        
+    except HTTPException as e:
+        raise e
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -827,6 +874,110 @@ def debug_clear_user_package(user_id: int, session: Session = Depends(get_sessio
             "success": False,
             "error": str(e)
         }
+
+# --- DEBUG: DELETE PAYMENT ---
+@router.post("/debug/delete-payment/{payment_id}")
+def debug_delete_payment(payment_id: int, session: Session = Depends(get_session)):
+    """Debug endpoint to delete a payment (no auth required)"""
+    try:
+        payment = session.get(Payment, payment_id)
+        if not payment:
+            return {
+                "success": False,
+                "error": f"Payment {payment_id} not found"
+            }
+        
+        # Delete payment
+        session.delete(payment)
+        session.commit()
+        
+        return {
+            "success": True,
+            "message": f"Deleted payment {payment_id}",
+            "deleted_payment": {
+                "id": payment.id,
+                "user_id": payment.user_id,
+                "package_id": payment.package_id,
+                "amount": payment.amount,
+                "status": payment.status,
+                "transaction_id": payment.transaction_id
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error deleting payment {payment_id}: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# --- DEBUG: CREATE PAYMENT WITH USER ID ---
+@router.post("/create-debug")
+def create_paypos_payment_debug(
+    package_id: int = Form(...),
+    user_id: int = Form(...),
+    session: Session = Depends(get_session)
+):
+    """Debug endpoint to create payment with specific user_id (no auth required)"""
+    try:
+        # Get user by ID
+        user = session.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get package
+        package = session.get(Package, package_id)
+        if not package:
+            raise HTTPException(status_code=404, detail="Package not found")
+        
+        # Check for ANY pending payment for this user (not just same package)
+        existing_pending = session.exec(
+            select(Payment).where(
+                Payment.user_id == user_id,
+                Payment.status == "Pending"
+            )
+        ).first()
+        
+        if existing_pending:
+            # Block new payment creation if user has any pending payment
+            logger.info(f"Found existing pending payment {existing_pending.id} for user {user_id}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Bạn đã có một giao dịch đang chờ thanh toán (ID: {existing_pending.id}). Vui lòng hoàn tất hoặc hủy giao dịch đó trước khi tạo giao dịch mới."
+            )
+        
+        # Generate unique order_id
+        timestamp = int(datetime.utcnow().timestamp())
+        order_id = f"PKG_{user_id}_{timestamp}_{package_id}"
+        
+        # Create payment record
+        payment = Payment(
+            user_id=user_id,
+            package_id=package_id,
+            amount=package.price,
+            method="PayPOS",
+            status="Pending",
+            transaction_id=order_id
+        )
+        
+        session.add(payment)
+        session.commit()
+        session.refresh(payment)
+        
+        return {
+            "success": True,
+            "message": "Payment created successfully",
+            "payment_id": payment.id,
+            "user_id": user_id,
+            "package_id": package_id,
+            "amount": payment.amount,
+            "transaction_id": payment.transaction_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating payment: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- UPDATE PAYMENT BY ORDER ID ---
 @router.post("/update-by-order-id")

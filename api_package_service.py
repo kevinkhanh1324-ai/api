@@ -69,22 +69,20 @@ def purchase_package(
             detail="You already have an active package. Please wait for it to expire or contact admin"
         )
     
-    # Check for very recent pending payment for same package (within last 10 seconds)
-    # This prevents double-click, but allows creating new payment if old one is stuck
-    recent_cutoff = datetime.utcnow() - timedelta(seconds=10)
-    recent_pending = session.exec(
+    # Check for ANY pending payment for this user (not just same package)
+    existing_pending = session.exec(
         select(Payment).where(
             Payment.user_id == user.id,
-            Payment.package_id == package_id,
-            Payment.status == "Pending",
-            Payment.transaction_date > recent_cutoff
+            Payment.status == "Pending"
         )
     ).first()
     
-    if recent_pending:
+    if existing_pending:
+        # Block new payment creation if user has any pending payment
+        logger.info(f"Found existing pending payment {existing_pending.id} for user {user.id}")
         raise HTTPException(
-            status_code=400,
-            detail="A payment for this package is already being processed. Please wait a moment."
+            status_code=400, 
+            detail=f"Bạn đã có một giao dịch đang chờ thanh toán (ID: {existing_pending.id}). Vui lòng hoàn tất hoặc hủy giao dịch đó trước khi tạo giao dịch mới."
         )
     
     # Cleanup old pending payments for this user (older than 30 minutes)
@@ -151,7 +149,7 @@ def purchase_package(
             order_data = {
                 "order_id": payment.transaction_id,
                 "amount": int(package.price),
-                "description": f"Thanh toán gói {package.name}",
+                "description": f"Thanh toán gói {package.name}"[:25],
                 "package_name": package.name,
                 "return_url": f"http://localhost:3000/payment/success/{payment.id}",
                 "cancel_url": f"http://localhost:3000/payment/cancel"
@@ -206,6 +204,61 @@ def purchase_package(
             "demo": True,
             "error": "PayPOS client not available"
         }
+
+@router.post("/{package_id}/purchase-debug")
+def purchase_package_debug(
+    package_id: int,
+    user_id: int = Form(...),
+    session: Session = Depends(get_session)
+):
+    """Debug endpoint to test purchase without auth"""
+    
+    # Get user by ID
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Validate user role
+    if user.role not in ["parent", "school"]:
+        raise HTTPException(status_code=403, detail="Only parents and schools can purchase packages")
+    
+    # Validate package exists and is active
+    package = session.get(Package, package_id)
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    if not package.is_active:
+        raise HTTPException(status_code=400, detail="Package is not active")
+    
+    # Check if user already has active package
+    if user.active_package_id and user.package_expiry_date and user.package_expiry_date > datetime.utcnow():
+        raise HTTPException(
+            status_code=400, 
+            detail="You already have an active package. Please wait for it to expire or contact admin"
+        )
+    
+    # Check for ANY pending payment for this user (not just same package)
+    existing_pending = session.exec(
+        select(Payment).where(
+            Payment.user_id == user.id,
+            Payment.status == "Pending"
+        )
+    ).first()
+    
+    if existing_pending:
+        # Block new payment creation if user has any pending payment
+        logger.info(f"Found existing pending payment {existing_pending.id} for user {user.id}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Bạn đã có một giao dịch đang chờ thanh toán (ID: {existing_pending.id}). Vui lòng hoàn tất hoặc hủy giao dịch đó trước khi tạo giao dịch mới."
+        )
+    
+    return {
+        "success": True,
+        "message": "Logic chặn hoạt động - không có pending payment",
+        "user_id": user.id,
+        "package_id": package_id
+    }
 
 @router.get("/user/current")
 def get_user_current_package(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
