@@ -16,9 +16,16 @@ router = APIRouter(prefix="/api/admin", tags=["Admin"])
 # ADMIN DASHBOARD
 @router.get('/dashboard')
 def admin_dashboard(user: User = Depends(require_role('admin')), session: Session = Depends(get_session)):
-    total_users = session.exec(select(func.count(User.id))).one()
+    total_users = session.exec(select(func.count(User.id)).where(User.role.in_(["school", "parent"]))).one()
+    total_parents = session.exec(select(func.count(User.id)).where(User.role == "parent")).one()
+    total_schools = session.exec(select(func.count(User.id)).where(User.role == "school")).one()
+    total_teachers = session.exec(select(func.count(Teacher.id))).one()  # Count from Teacher table
+
     return {
-        "users": total_users
+        "users": total_users,
+        "parents": total_parents,
+        "schools": total_schools,
+        "teachers": total_teachers
     }
 
 # QUẢN LÝ NGƯỜI DÙNG (school, parent)
@@ -32,10 +39,11 @@ def admin_create_user(
     email: str = Form(...),
     full_name: str = Form(...),
     password: str = Form(...),
-    role: str = Form(...),  # "school" hoặc "parent"
+    role: str = Form(...),  # "school" or "parent" only
     phone: Optional[str] = Form(None),
     address: Optional[str] = Form(None),
     emergency_contact: Optional[str] = Form(None),
+    relationship: Optional[str] = Form(None),
     user: User = Depends(require_role('admin')),
     session: Session = Depends(get_session)
 ):
@@ -52,7 +60,8 @@ def admin_create_user(
         role=role,
         phone=phone,
         address=address,
-        emergency_contact=emergency_contact
+        emergency_contact=emergency_contact,
+        relationship=relationship
     )
     session.add(u)
     session.commit()
@@ -69,6 +78,7 @@ def admin_update_user(
     phone: Optional[str] = Form(None),
     address: Optional[str] = Form(None),
     emergency_contact: Optional[str] = Form(None),
+    relationship: Optional[str] = Form(None),
     user: User = Depends(require_role('admin')),
     session: Session = Depends(get_session)
 ):
@@ -88,6 +98,8 @@ def admin_update_user(
         u.address = address
     if emergency_contact is not None:
         u.emergency_contact = emergency_contact
+    if relationship is not None:
+        u.relationship = relationship
     
     session.add(u)
     session.commit()

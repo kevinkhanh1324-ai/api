@@ -18,6 +18,16 @@ def parent_dashboard(user: User = Depends(require_role("parent")), session: Sess
 
     return {
         "msg": f"Chào mừng phụ huynh {user.full_name}",
+        "profile": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "phone": user.phone,
+            "address": user.address,
+            "emergency_contact": user.emergency_contact,
+            "relationship": user.relationship
+        },
         "children_count": len(children),
         "recent_alerts_count": len(alerts),
         "children": children,
