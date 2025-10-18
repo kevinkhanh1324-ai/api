@@ -19,7 +19,7 @@ from sqlalchemy import text
 from models import (
     User, TokenWithRole, AuthIn, RegisterIn, ResetPasswordIn,
     ParentCreate, Teacher, ClassRoom, Child, Camera, DangerZone,
-    Alert, BehaviorLog, FaceRecognitionData, AuditLog
+    Alert, BehaviorLog, FaceRecognitionData, AuditLog, Package, Payment
 )
 
 # 🔹 CẤU HÌNH
