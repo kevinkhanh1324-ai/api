@@ -27,6 +27,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 security = HTTPBearer()
 SECRET_KEY = os.getenv("SAFENEST_SECRET", "dev-secret-changeme")
+print(f"Using SECRET_KEY: {SECRET_KEY}")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
@@ -118,7 +119,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    print(f"SECRET_KEY: {SECRET_KEY}")
+    print(f"ALGORITHM: {ALGORITHM}")
+    print(f"Token data to encode: {to_encode}")
+    print(f"Expire time: {expire}")
+    token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    print(f"Encoded token: {token[:50]}...")
+    return token
 
 # 🔹 GHI NHẬT KÝ (dùng BackgroundTasks thay vì asyncio.create_task)
 def audit(user_id: Optional[int], action: str, details: Optional[str] = None):
@@ -135,16 +142,25 @@ def get_current_user(
     session: Session = Depends(get_session),
 ) -> User:
     try:
+        print(f"Token received: {cred.credentials[:50]}...")
+        print(f"SECRET_KEY for decode: {SECRET_KEY}")
+        print(f"ALGORITHM for decode: {ALGORITHM}")
         payload = jwt.decode(cred.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        print(f"Token payload: {payload}")
         user_id = payload.get("user_id")
         if not user_id:
+            print("No user_id in token payload")
             raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
+    except JWTError as e:
+        print(f"JWT decode error: {e}")
+        print(f"Token that failed: {cred.credentials}")
         raise HTTPException(status_code=401, detail="Invalid token")
     
     user = session.get(User, user_id)
     if not user:
+        print(f"User not found with ID: {user_id}")
         raise HTTPException(status_code=401, detail="User not found")
+    print(f"User found: {user.email}, role: {user.role}")
     return user
 
 def get_current_user_optional(
@@ -169,6 +185,7 @@ def get_current_user_optional(
 
 def require_role(role: str):
     def checker(user: User = Depends(get_current_user)):
+        print(f"User role: {user.role}, Required role: {role}")
         if user.role != role:
             raise HTTPException(status_code=403, detail="Permission denied")
         return user
@@ -196,7 +213,10 @@ def login(payload: AuthIn, bg: BackgroundTasks, session: Session = Depends(get_s
     user = session.exec(select(User).where(User.email == payload.email)).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(401, 'Invalid email or password')
-    token = create_access_token({"user_id": user.id, "role": user.role})
+    token_data = {"user_id": user.id, "role": user.role}
+    print(f"Creating token with data: {token_data}")
+    token = create_access_token(token_data)
+    print(f"Created token: {token[:50]}...")
     bg.add_task(audit, user.id, "login")
     return {"access_token": token, "token_type": "bearer", "role": user.role}
 

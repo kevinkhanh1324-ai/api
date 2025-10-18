@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, HTTPException, Form, Request
 from sqlmodel import Session, select
 from typing import Optional, List
 import json
@@ -8,17 +8,35 @@ from apiSQL import get_session, require_role
 
 router = APIRouter(prefix="/api/packages", tags=["📦 Package Management"])
 
+# Test endpoint to verify connection
+@router.get("/test")
+def test_connection():
+    """Test endpoint to verify API connection"""
+    return {"message": "API connection working", "timestamp": datetime.utcnow().isoformat()}
+
+# Test endpoint to check headers
+@router.get("/test-headers")
+def test_headers(request: Request):
+    """Test endpoint to check request headers"""
+    auth_header = request.headers.get("Authorization")
+    return {
+        "message": "Headers test",
+        "authorization_header": auth_header,
+        "all_headers": dict(request.headers)
+    }
+
 # --- PACKAGE MANAGEMENT ---
+@router.get("/admin")
+def admin_get_packages(user: User = Depends(require_role("admin")), session: Session = Depends(get_session)):
+    """Admin lấy tất cả gói dịch vụ (bao gồm inactive)"""
+    print(f"Admin get packages called by user: {user.email}, role: {user.role}")
+    packages = session.exec(select(Package)).all()
+    return packages
+
 @router.get("/")
 def get_packages(session: Session = Depends(get_session)):
     """Lấy danh sách tất cả gói dịch vụ (public)"""
     packages = session.exec(select(Package).where(Package.is_active == True)).all()
-    return packages
-
-@router.get("/admin")
-def admin_get_packages(user: User = Depends(require_role("admin")), session: Session = Depends(get_session)):
-    """Admin lấy tất cả gói dịch vụ (bao gồm inactive)"""
-    packages = session.exec(select(Package)).all()
     return packages
 
 @router.post("/")
@@ -34,6 +52,7 @@ def create_package(
     session: Session = Depends(get_session)
 ):
     """Tạo gói dịch vụ mới (admin only)"""
+    print(f"Create package called by user: {user.email}, role: {user.role}")
     
     # Validate JSON
     try:

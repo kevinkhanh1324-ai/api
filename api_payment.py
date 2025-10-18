@@ -183,11 +183,11 @@ def update_payment_status(
         
         if user_obj and package:
             user_obj.active_package_id = package.id
-            user_obj.expiry_date = datetime.utcnow() + timedelta(days=package.duration_days)
-            user_obj.is_active = True
+            user_obj.package_expiry_date = datetime.utcnow() + timedelta(days=package.duration_days)
+            user_obj.is_active_package = True
             
             # Set payment expiry date
-            payment.expiry_date = user_obj.expiry_date
+            payment.expiry_date = user_obj.package_expiry_date
             
             session.add(user_obj)
     
@@ -253,7 +253,12 @@ async def paypos_callback(request: Request, session: Session = Depends(get_sessi
         # Update payment status
         if status == "success":
             payment.status = "Success"
-            payment.transaction_id = transaction_id
+            # Only update transaction_id if it's provided and not empty
+            if transaction_id and transaction_id.strip():
+                payment.transaction_id = transaction_id
+            else:
+                # If no transaction_id from PayPOS, use the order_id as fallback
+                payment.transaction_id = order_id
             
             # Activate package for user
             user = session.get(User, payment.user_id)
@@ -268,10 +273,16 @@ async def paypos_callback(request: Request, session: Session = Depends(get_sessi
                 session.add(user)
         elif status == "failed":
             payment.status = "Failed"
-            payment.transaction_id = transaction_id
+            if transaction_id and transaction_id.strip():
+                payment.transaction_id = transaction_id
+            else:
+                payment.transaction_id = order_id
         else:  # pending
             payment.status = "Pending"
-            payment.transaction_id = transaction_id
+            if transaction_id and transaction_id.strip():
+                payment.transaction_id = transaction_id
+            else:
+                payment.transaction_id = order_id
         
         session.add(payment)
         session.commit()

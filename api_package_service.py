@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from typing import List, Optional
 from datetime import datetime, timedelta
 from models import Package, Payment, User
-from apiSQL import get_session, get_current_user
+from common import get_session, get_current_user
 import json
 import logging
 
@@ -25,7 +25,7 @@ except ImportError as e:
     PAYPOS_AVAILABLE = False
     logger.warning(f"PayPOS client not available: {e}")
 
-router = APIRouter(prefix="/api/packages", tags=["📦 Package Service"])
+router = APIRouter(prefix="/api/package-service", tags=["📦 Package Service"])
 
 # --- PACKAGE SERVICE FOR PARENT & SCHOOL ---
 @router.get("/", response_model=List[Package])
@@ -242,6 +242,132 @@ def get_user_current_package(user: User = Depends(get_current_user), session: Se
         "expiry_date": user.package_expiry_date,
         "days_remaining": (user.package_expiry_date - datetime.utcnow()).days if user.package_expiry_date and user.package_expiry_date > datetime.utcnow() else 0
     }
+
+@router.get("/user/pending-payment")
+def get_user_pending_payment(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    """Lấy payment đang pending của user"""
+    
+    pending_payment = session.exec(
+        select(Payment).where(
+            Payment.user_id == user.id,
+            Payment.status == "Pending"
+        )
+    ).first()
+    
+    if not pending_payment:
+        return {
+            "has_pending": False,
+            "message": "No pending payment"
+        }
+    
+    package = session.get(Package, pending_payment.package_id)
+    
+    return {
+        "has_pending": True,
+        "payment": {
+            "id": pending_payment.id,
+            "amount": pending_payment.amount,
+            "status": pending_payment.status,
+            "method": pending_payment.method,
+            "transaction_id": pending_payment.transaction_id,
+            "transaction_date": pending_payment.transaction_date,
+            "package": {
+                "id": package.id,
+                "name": package.name,
+                "price": package.price,
+                "duration_days": package.duration_days
+            } if package else None
+        }
+    }
+
+@router.post("/payment/{payment_id}/retry")
+def retry_payment(payment_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    """Tạo lại payment link cho payment đang pending"""
+    
+    payment = session.get(Payment, payment_id)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    if payment.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if payment.status != "Pending":
+        raise HTTPException(status_code=400, detail="Payment is not pending")
+    
+    package = session.get(Package, payment.package_id)
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    # Create PayPOS payment link
+    if PAYPOS_AVAILABLE:
+        try:
+            order_data = {
+                "order_id": payment.transaction_id,
+                "amount": int(payment.amount),
+                "description": f"Thanh toán gói {package.name}"[:25],
+                "package_name": package.name,
+                "return_url": f"http://localhost:3000/payment/success/{payment.id}",
+                "cancel_url": f"http://localhost:3000/payment/cancel"
+            }
+            
+            logger.info(f"Retrying PayOS payment for order: {order_data}")
+            paypos_result = paypos_client.create_payment_request(order_data)
+            logger.info(f"PayOS retry result: {paypos_result}")
+            
+            if paypos_result and paypos_result.get("success"):
+                return {
+                    "payment_id": payment.id,
+                    "amount": payment.amount,
+                    "package_name": package.name,
+                    "transaction_id": payment.transaction_id,
+                    "payment_url": paypos_result["payment_url"],
+                    "order_id": paypos_result["order_id"],
+                    "status": "redirect_to_paypos",
+                    "redirect_url": paypos_result["payment_url"],
+                    "message": "Payment link created successfully. Redirecting to PayPOS."
+                }
+            else:
+                logger.warning(f"PayPOS retry failed: {paypos_result}")
+                return {
+                    "payment_id": payment.id,
+                    "amount": payment.amount,
+                    "package_name": package.name,
+                    "transaction_id": payment.transaction_id,
+                    "redirect_url": f"/payment/package/{package.id}",
+                    "status": "redirect_to_payment_page",
+                    "message": "Payment link created successfully. Redirect to payment page.",
+                    "error": f"PayPOS creation failed: {paypos_result.get('error', 'Unknown error') if paypos_result else 'No response'}"
+                }
+        except Exception as e:
+            logger.error(f"PayOS retry API error: {str(e)}")
+            return {
+                "payment_id": payment.id,
+                "amount": payment.amount,
+                "package_name": package.name,
+                "transaction_id": payment.transaction_id,
+                "payment_url": f"https://demo-paypos.com/payment/{payment.transaction_id}",
+                "order_id": payment.transaction_id,
+                "status": "redirect_to_paypos",
+                "redirect_url": f"https://demo-paypos.com/payment/{payment.transaction_id}",
+                "message": "Payment link created successfully. Redirecting to PayPOS (Demo mode).",
+                "demo": True,
+                "error": f"PayOS API error: {str(e)}"
+            }
+    else:
+        logger.warning("PayPOS client not available, using demo mode for retry")
+        return {
+            "payment_id": payment.id,
+            "amount": payment.amount,
+            "package_name": package.name,
+            "transaction_id": payment.transaction_id,
+            "payment_url": f"https://demo-paypos.com/payment/{payment.transaction_id}",
+            "order_id": payment.transaction_id,
+            "status": "redirect_to_paypos",
+            "redirect_url": f"https://demo-paypos.com/payment/{payment.transaction_id}",
+            "message": "Payment link created successfully. Redirecting to PayPOS (Demo mode).",
+            "demo": True,
+            "error": "PayPOS client not available"
+        }
 
 @router.get("/user/payments")
 def get_user_payment_history(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
