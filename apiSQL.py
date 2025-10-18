@@ -100,6 +100,95 @@ def init_db():
             """))
             session.commit()
 
+        # Package mẫu (giống máy dev chính)
+        if not session.exec(select(Package)).first():
+            session.execute(text("""
+                INSERT INTO [Package] (name, price, duration_days, camera_limit, ai_features, storage_days, description, is_active, created_at) VALUES
+                (N'Gói Dịch Vụ Trẻ Em', 3000, 30, 1, N'["Phát hiện bạo lực", "Nhận diện khuôn mặt", "Theo dõi an toàn"]', 7, N'Gói dịch vụ chuyên biệt cho trẻ em với tính năng AI tiên tiến', 1, '2025-10-15 10:45:12.117'),
+                """))
+            session.commit()
+
+        # Payment mẫu (giống máy dev chính)
+        if not session.exec(select(Payment)).first():
+            session.execute(text("""
+                INSERT INTO [Payment] (user_id, package_id, amount, method, status, transaction_id, transaction_date, expiry_date)
+                SELECT 
+                    u.id as user_id,
+                    p.id as package_id,
+                    p.price as amount,
+                    N'PayPOS' as method,
+                    N'Success' as status,
+                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_001' as transaction_id,
+                    DATEADD(day, -10, GETDATE()) as transaction_date,
+                    DATEADD(day, 20, GETDATE()) as expiry_date
+                FROM [User] u, [Package] p
+                WHERE u.email = 'parent@example.com' AND p.name = N'Gói Dịch Vụ Trẻ Em'
+                
+                UNION ALL
+                
+                SELECT 
+                    u.id as user_id,
+                    p.id as package_id,
+                    p.price as amount,
+                    N'PayPOS' as method,
+                    N'Success' as status,
+                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_002' as transaction_id,
+                    DATEADD(day, -5, GETDATE()) as transaction_date,
+                    DATEADD(day, 15, GETDATE()) as expiry_date
+                FROM [User] u, [Package] p
+                WHERE u.email = 'school@example.com' AND p.name = N'test'
+                
+                UNION ALL
+                
+                SELECT 
+                    u.id as user_id,
+                    p.id as package_id,
+                    p.price as amount,
+                    N'PayPOS' as method,
+                    N'Pending' as status,
+                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_003' as transaction_id,
+                    GETDATE() as transaction_date,
+                    NULL as expiry_date
+                FROM [User] u, [Package] p
+                WHERE u.email = 'parent@example.com' AND p.name = N'test'
+                
+                UNION ALL
+                
+                SELECT 
+                    u.id as user_id,
+                    p.id as package_id,
+                    p.price as amount,
+                    N'PayPOS' as method,
+                    N'Failed' as status,
+                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_004' as transaction_id,
+                    DATEADD(day, -3, GETDATE()) as transaction_date,
+                    NULL as expiry_date
+                FROM [User] u, [Package] p
+                WHERE u.email = 'admin@example.com' AND p.name = N'Gói Dịch Vụ Trẻ Em'
+            """))
+            session.commit()
+
+            # Cập nhật User package info
+            session.execute(text("""
+                UPDATE [User] 
+                SET 
+                    active_package_id = (SELECT id FROM [Package] WHERE name = N'Gói Dịch Vụ Trẻ Em'),
+                    package_expiry_date = DATEADD(day, 20, GETDATE()),
+                    is_active_package = 1
+                WHERE email = 'parent@example.com'
+            """))
+            session.commit()
+
+            session.execute(text("""
+                UPDATE [User] 
+                SET 
+                    active_package_id = (SELECT id FROM [Package] WHERE name = N'test'),
+                    package_expiry_date = DATEADD(day, 15, GETDATE()),
+                    is_active_package = 1
+                WHERE email = 'school@example.com'
+            """))
+            session.commit()
+
 @app.on_event("startup")
 def on_startup():
     init_db()
