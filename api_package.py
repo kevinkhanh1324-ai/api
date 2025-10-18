@@ -139,3 +139,72 @@ def get_package(package_id: int, session: Session = Depends(get_session)):
     if not package:
         raise HTTPException(status_code=404, detail="Package not found")
     return package
+
+# --- CLEANUP ENDPOINTS ---
+@router.post("/cleanup-invalid-payments")
+def cleanup_invalid_payments(
+    user: User = Depends(require_role("parent")),
+    session: Session = Depends(get_session)
+):
+    """Cleanup invalid payments for current user"""
+    try:
+        from models import Payment
+        
+        # Cleanup invalid payments for current user
+        invalid_payments = session.exec(
+            select(Payment).where(
+                Payment.user_id == user.id,
+                Payment.status.in_(["Failed", "Cancelled", "Expired"])
+            )
+        ).all()
+        
+        cleaned_count = 0
+        for payment in invalid_payments:
+            session.delete(payment)
+            cleaned_count += 1
+        
+        session.commit()
+        
+        return {
+            "message": f"Cleaned up {cleaned_count} invalid payments",
+            "cleaned_count": cleaned_count
+        }
+        
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/force-cleanup-pending")
+def force_cleanup_pending(
+    user: User = Depends(require_role("parent")),
+    session: Session = Depends(get_session)
+):
+    """Force cleanup old pending payments for current user (older than 5 minutes)"""
+    try:
+        from models import Payment
+        
+        # Cleanup pending payments older than 5 minutes for current user
+        cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+        old_pending_payments = session.exec(
+            select(Payment).where(
+                Payment.user_id == user.id,
+                Payment.status == "Pending",
+                Payment.transaction_date < cutoff_time
+            )
+        ).all()
+        
+        cleaned_count = 0
+        for payment in old_pending_payments:
+            payment.status = "Cancelled"
+            cleaned_count += 1
+        
+        session.commit()
+        
+        return {
+            "message": f"Force cleaned up {cleaned_count} old pending payments",
+            "cleaned_count": cleaned_count
+        }
+        
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
