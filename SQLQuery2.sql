@@ -17,7 +17,11 @@ CREATE TABLE [User] (
     phone NVARCHAR(20) NULL,
     address NVARCHAR(500) NULL,
     emergency_contact NVARCHAR(255) NULL,
-    relationship NVARCHAR(50) NULL
+    relationship NVARCHAR(50) NULL,
+    -- Payment & Package fields
+    active_package_id INT NULL,
+    package_expiry_date DATETIME NULL,
+    is_active_package BIT NOT NULL DEFAULT 0
 );
 
 -- 4. Tạo bảng Teacher
@@ -97,7 +101,34 @@ CREATE TABLE FaceRecognitionData (
     encoding_path NVARCHAR(500) NOT NULL
 );
 
--- 12. Tạo bảng AuditLog
+-- 12. Tạo bảng Package
+CREATE TABLE Package (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    name NVARCHAR(255) NOT NULL,
+    price FLOAT NOT NULL,
+    duration_days INT NOT NULL,
+    camera_limit INT NOT NULL,
+    ai_features NVARCHAR(1000) NOT NULL, -- JSON string
+    storage_days INT NOT NULL,
+    description NVARCHAR(1000) NULL,
+    is_active BIT NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT GETUTCDATE()
+);
+
+-- 13. Tạo bảng Payment
+CREATE TABLE Payment (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    user_id INT NOT NULL FOREIGN KEY REFERENCES [User](id) ON DELETE CASCADE,
+    package_id INT NOT NULL FOREIGN KEY REFERENCES Package(id) ON DELETE CASCADE,
+    amount FLOAT NOT NULL,
+    method NVARCHAR(50) NOT NULL, -- "PayPOS", "Manual"
+    status NVARCHAR(50) NOT NULL, -- "Pending", "Success", "Failed"
+    transaction_id NVARCHAR(255) NULL UNIQUE,
+    transaction_date DATETIME NOT NULL DEFAULT GETUTCDATE(),
+    expiry_date DATETIME NULL
+);
+
+-- 14. Tạo bảng AuditLog
 CREATE TABLE AuditLog (
     id INT IDENTITY(1,1) PRIMARY KEY,
     user_id INT NULL FOREIGN KEY REFERENCES [User](id) ON DELETE SET NULL,
@@ -105,3 +136,8 @@ CREATE TABLE AuditLog (
     details NVARCHAR(500) NULL,
     created_at DATETIME NOT NULL DEFAULT GETUTCDATE()
 );
+
+-- 15. Thêm Foreign Key cho active_package_id
+ALTER TABLE [User] 
+ADD CONSTRAINT FK_User_ActivePackage 
+FOREIGN KEY (active_package_id) REFERENCES Package(id) ON DELETE SET NULL;
