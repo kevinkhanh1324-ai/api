@@ -33,12 +33,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 # Database configuration - SQL Server
 DB_SERVER = os.getenv("DB_SERVER", "localhost")
-DB_USER = os.getenv("DB_USER", "sa")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "12345")
+DB_USER = os.getenv("DB_USER", "")  # Empty for Windows auth
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "apidb")
 
 # For Render (production): set USE_PYMSSQL=true để dùng pymssql (pure Python, không cần compile)
-# For local development: dùng pyodbc (cần ODBC Driver 17 for SQL Server)
+# For local development: dùng pyodbc với Windows Authentication hoặc SQL Server Auth
 USE_PYMSSQL = os.getenv("USE_PYMSSQL", "false").lower() == "true"
 
 if USE_PYMSSQL:
@@ -46,16 +46,14 @@ if USE_PYMSSQL:
     import pymssql
     DB_URL = f"mssql+pymssql://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}/{DB_NAME}"
 else:
-    # Local development - uses pyodbc
+    # Local development - uses pyodbc với Windows Auth (Trusted_Connection=yes)
     params = urllib.parse.quote_plus(
         f"DRIVER={{ODBC Driver 17 for SQL Server}};"
         f"SERVER={DB_SERVER};"
         f"DATABASE={DB_NAME};"
-        f"UID={DB_USER};"
-        f"PWD={DB_PASSWORD};"
+        f"Trusted_Connection=yes;"
         f"MARS_Connection=yes;"
         f"fast_executemany=yes;"
-        f"UseFMTONLY=Yes;"
         f"charset=utf8;"
     )
     DB_URL = f"mssql+pyodbc:///?odbc_connect={params}"
@@ -82,7 +80,8 @@ def get_session():
             yield session
     except Exception as e:
         print(f"Database session error: {e}")
-        yield None
+        # Không yield None, để endpoint tự xử lý lỗi
+        raise
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -283,16 +282,17 @@ def init_db():
 def on_startup():
     try:
         init_db()
+        print("✅ Database initialized successfully")
     except Exception as e:
         print(f"⚠️ Warning: Database initialization failed: {e}")
         print("⚠️ Running without database. Some endpoints may not work.")
-        print("⚠️ To fix: Start a SQL Server instance or provide valid DB_* environment variables")
+        print("⚠️ To connect to SQL Server:")
+        print("   1. Start SQL Server (or use Azure SQL)")
+        print("   2. For Render production: set environment variable USE_PYMSSQL=true")
 
 # 🔹 Endpoints xác thực
 @app.post('/api/auth/register')
 def register(payload: RegisterIn, bg: BackgroundTasks, session: Session = Depends(get_session)):
-    if not session:
-        raise HTTPException(503, "Database unavailable")
     try:
         if session.exec(select(User).where(User.email == payload.email)).first():
             raise HTTPException(400, "Email already registered")
@@ -311,8 +311,6 @@ def register(payload: RegisterIn, bg: BackgroundTasks, session: Session = Depend
 
 @app.post('/api/auth/login', response_model=TokenWithRole)
 def login(payload: AuthIn, bg: BackgroundTasks, session: Session = Depends(get_session)):
-    if not session:
-        raise HTTPException(503, "Database unavailable")
     try:
         user = session.exec(select(User).where(User.email == payload.email)).first()
         if not user or not verify_password(payload.password, user.hashed_password):
@@ -349,8 +347,11 @@ def reset_password(payload: ResetPasswordIn, bg: BackgroundTasks, session: Sessi
         session.commit()
         bg.add_task(audit, user.id, "reset_password")
         return {"msg": "Password updated"}
-    except Exception:
-        raise HTTPException(400, 'Invalid token')
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Reset password error: {e}")
+        raise HTTPException(503, "Database unavailable")
 
 # 🔹 WebSocket
 class ConnectionManager:
