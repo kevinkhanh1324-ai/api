@@ -1,0 +1,37 @@
+# FastAPI & Web Server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+starlette==0.27.0
+
+# Database & ORM
+sqlmodel==0.0.14
+sqlalchemy==2.0.23
+pyodbc==5.0.1
+
+# Authentication & Security
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+pyjwt==2.8.1
+cryptography==41.0.7
+
+# Data Validation
+pydantic==2.5.0
+pydantic-core==2.14.1
+
+# HTTP & Request Handling
+python-multipart==0.0.6
+requests==2.31.0
+httpx==0.25.2
+
+# API Documentation
+python-multipart==0.0.6
+
+# JSON Encoding
+python-jose==3.3.0
+
+# Date & Time
+python-dateutil==2.8.2
+
+# Utilities
+python-dotenv==1.0.0
+typing-extensions==4.8.0
