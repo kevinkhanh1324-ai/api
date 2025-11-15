@@ -23,6 +23,13 @@ from models import (
     Alert, BehaviorLog, FaceRecognitionData, AuditLog, Package, Payment
 )
 
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # 🔹 Cấu hình
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
