@@ -7,8 +7,8 @@ services:
     envVars:
       - key: MYSQL_PUBLIC_URL
         value: mysql://root:XXOPtvBxiLyswgWxRaibrOkufeMCpUxb@mainline.proxy.rlwy.net:25313/railway
-      - key: MYSQLHOST
-        value: mysql.railway.internal
+      - key: MYSQLHOST  
+        value: mainline.proxy.rlwy.net
       - key: MYSQLUSER
         value: root
       - key: MYSQLPASSWORD
@@ -16,4 +16,4 @@ services:
       - key: MYSQLDATABASE
         value: railway
       - key: MYSQLPORT
-        value: "3306"
+        value: "25313"
