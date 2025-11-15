@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: safenest-api
+    runtime: python3
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn apiSQL:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MYSQL_PUBLIC_URL
+        value: mysql://root:XXOPtvBxiLyswgWxRaibrOkufeMCpUxb@mainline.proxy.rlwy.net:25313/railway
+      - key: MYSQLHOST
+        value: mysql.railway.internal
+      - key: MYSQLUSER
+        value: root
+      - key: MYSQLPASSWORD
+        value: XXOPtvBxiLyswgWxRaibrOkufeMCpUxb
+      - key: MYSQLDATABASE
+        value: railway
+      - key: MYSQLPORT
+        value: "3306"

@@ -32,14 +32,14 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 # Database configuration - MySQL Railway
-DB_HOST = os.getenv("MYSQLHOST", "mainline.proxy.rlwy.net")
+DB_HOST = os.getenv("MYSQLHOST", "mysql.railway.internal")  # Private network
 DB_USER = os.getenv("MYSQLUSER", "root")
-DB_PASSWORD = os.getenv("MYSQL_ROOT_PASSWORD", "XXOPtvBxiLyswgWxRaibrOkufeMCpUxb")
-DB_NAME = os.getenv("MYSQL_DATABASE", "railway")
-DB_PORT = os.getenv("MYSQLPORT", "25313")
+DB_PASSWORD = os.getenv("MYSQLPASSWORD", "XXOPtvBxiLyswgWxRaibrOkufeMCpUxb")  
+DB_NAME = os.getenv("MYSQLDATABASE", "railway")
+DB_PORT = os.getenv("MYSQLPORT", "3306")
 
-# Use Railway's MySQL URL
-MYSQL_URL = os.getenv("MYSQL_URL", f"mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+# Use Railway's MySQL URLs - prioritize public for external deployment
+MYSQL_URL = os.getenv("MYSQL_PUBLIC_URL") or os.getenv("MYSQL_URL", f"mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 DB_URL = MYSQL_URL.replace("mysql://", "mysql+pymysql://")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
