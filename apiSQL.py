@@ -31,13 +31,16 @@ SECRET_KEY = os.getenv("SAFENEST_SECRET", "dev-secret-changeme")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-# Sử dụng tài khoản sa, mật khẩu, instance SQLEXPRESS
-# Thay YOUR_PASSWORD bằng mật khẩu thực tế
-DB_URL = (
-    "mssql+pyodbc://sa:12345@localhost\\SQLEXPRESS/apidb"
-    "?driver=ODBC+Driver+17+for+SQL+Server"
-    "&TrustServerCertificate=yes"
-)
+# Database configuration - MySQL Railway
+DB_HOST = os.getenv("MYSQLHOST", "mainline.proxy.rlwy.net")
+DB_USER = os.getenv("MYSQLUSER", "root")
+DB_PASSWORD = os.getenv("MYSQL_ROOT_PASSWORD", "XXOPtvBxiLyswgWxRaibrOkufeMCpUxb")
+DB_NAME = os.getenv("MYSQL_DATABASE", "railway")
+DB_PORT = os.getenv("MYSQLPORT", "25313")
+
+# Use Railway's MySQL URL
+MYSQL_URL = os.getenv("MYSQL_URL", f"mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+DB_URL = MYSQL_URL.replace("mysql://", "mysql+pymysql://")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -50,12 +53,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Tạo engine cho MySQL
 engine = create_engine(DB_URL, echo=False, pool_pre_ping=True)
 
 # 🔹 Tiện ích
 def get_session():
-    with Session(engine) as session:
-        yield session
+    try:
+        with Session(engine) as session:
+            yield session
+    except Exception as e:
+        print(f"Database session error: {e}")
+        # Không yield None, để endpoint tự xử lý lỗi
+        raise
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -123,126 +133,180 @@ def require_role(role: str):
 def init_db():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        # Create users
         if not session.exec(select(User)).first():
-            pw_admin = hash_password('admin123')
-            pw_parent = hash_password('parent123')
-            pw_school = hash_password('school123')
-            session.execute(text("""
-                INSERT INTO [User] (email, full_name, hashed_password, role, phone, address, emergency_contact, relationship)
-                VALUES 
-                ('admin@example.com', N'Admin User', :pw_admin, 'admin', '+8400000000', N'1 Admin St, City', NULL, NULL),
-                ('parent@example.com', N'Nguyễn Văn A', :pw_parent, 'parent', '+84123456789', N'123 Lê Lợi, Q1, HCM', N'Nguyễn Thị B - 0909123456', N'Bố'),
-                ('school@example.com', N'School Admin', :pw_school, 'school', '+84987654321', N'456 Trần Hưng Đạo, Q1, HCM', NULL, NULL)
-            """), {"pw_admin": pw_admin, "pw_parent": pw_parent, "pw_school": pw_school})
+            admin = User(
+                email='admin@example.com',
+                full_name='Admin User',
+                hashed_password=hash_password('admin123'),
+                role='admin',
+                phone='+8400000000',
+                address='1 Admin St, City'
+            )
+            parent = User(
+                email='parent@example.com',
+                full_name='Nguyễn Văn A',
+                hashed_password=hash_password('parent123'),
+                role='parent',
+                phone='+84123456789',
+                address='123 Lê Lợi, Q1, HCM',
+                emergency_contact='Nguyễn Thị B - 0909123456',
+                relationship='Bố'
+            )
+            school = User(
+                email='school@example.com',
+                full_name='School Admin',
+                hashed_password=hash_password('school123'),
+                role='school',
+                phone='+84987654321',
+                address='456 Trần Hưng Đạo, Q1, HCM'
+            )
+            session.add(admin)
+            session.add(parent)
+            session.add(school)
             session.commit()
+            session.refresh(admin)
+            session.refresh(parent)
+            session.refresh(school)
+        else:
+            admin = session.exec(select(User).where(User.email == 'admin@example.com')).first()
+            parent = session.exec(select(User).where(User.email == 'parent@example.com')).first()
+            school = session.exec(select(User).where(User.email == 'school@example.com')).first()
 
+        # Create teacher
         if not session.exec(select(Teacher)).first():
-            pw_teacher = hash_password('teacher123')
-            session.execute(text("""
-                INSERT INTO Teacher (email, full_name, hashed_password, phone, address, emergency_contact, experience, education_level, school_id)
-                VALUES ('teacher@example.com', N'Trần Thị C', :pw_teacher, '+840912345678', N'789 Phạm Ngũ Lão, Q1, HCM', N'Lê Văn D - 0909988776', N'5 năm', N'Cao đẳng Sư phạm', (SELECT id FROM [User] WHERE email = 'school@example.com'))
-            """), {"pw_teacher": pw_teacher})
+            teacher = Teacher(
+                email='teacher@example.com',
+                full_name='Trần Thị C',
+                hashed_password=hash_password('teacher123'),
+                phone='+840912345678',
+                address='789 Phạm Ngũ Lão, Q1, HCM',
+                emergency_contact='Lê Văn D - 0909988776',
+                experience='5 năm',
+                education_level='Cao đẳng Sư phạm',
+                school_id=school.id if school else None
+            )
+            session.add(teacher)
             session.commit()
+            session.refresh(teacher)
+        else:
+            teacher = session.exec(select(Teacher)).first()
 
-        if not session.exec(select(ClassRoom)).first():
-            session.execute(text("""
-                INSERT INTO ClassRoom (name, teacher_id, school_id)
-                SELECT 'Class A', t.id, u.id
-                FROM Teacher t, [User] u
-                WHERE t.email = 'teacher@example.com' AND u.email = 'school@example.com'
-            """))
+        # Create classroom
+        if not session.exec(select(ClassRoom)).first() and teacher:
+            classroom = ClassRoom(
+                name='Class A',
+                teacher_id=teacher.id,
+                school_id=school.id if school else None
+            )
+            session.add(classroom)
             session.commit()
+            session.refresh(classroom)
+        else:
+            classroom = session.exec(select(ClassRoom)).first()
 
-        if not session.exec(select(Child)).first():
-            session.execute(text("""
-                INSERT INTO Child (full_name, date_of_birth, class_id, parent_id)
-                SELECT N'Nguyễn Văn B', '2013-05-26', cr.id, u.id
-                FROM ClassRoom cr, [User] u
-                WHERE cr.name = 'Class A' AND u.email = 'parent@example.com'
-            """))
+        # Create child
+        if not session.exec(select(Child)).first() and classroom and parent:
+            from datetime import datetime as dt
+            child = Child(
+                full_name='Nguyễn Văn B',
+                date_of_birth=dt.strptime('2013-05-26', '%Y-%m-%d').date(),
+                class_id=classroom.id,
+                parent_id=parent.id
+            )
+            session.add(child)
             session.commit()
+            session.refresh(child)
 
+        # Create package
         if not session.exec(select(Package)).first():
-            session.execute(text("""
-                INSERT INTO [Package] (name, price, duration_days, camera_limit, ai_features, storage_days, description, is_active, created_at) VALUES
-                (N'Gói Dịch Vụ Trẻ Em', 3000, 30, 1, N'["Phát hiện bạo lực", "Nhận diện khuôn mặt", "Theo dõi an toàn"]', 7, N'Gói dịch vụ chuyên biệt cho trẻ em với tính năng AI tiên tiến', 1, '2025-10-15 10:45:12.117')
-            """))
+            package = Package(
+                name='Gói Dịch Vụ Trẻ Em',
+                price=3000,
+                duration_days=30,
+                camera_limit=1,
+                ai_features='["Phát hiện bạo lực", "Nhận diện khuôn mặt", "Theo dõi an toàn"]',
+                storage_days=7,
+                description='Gói dịch vụ chuyên biệt cho trẻ em với tính năng AI tiên tiến',
+                is_active=True,
+                created_at=datetime.utcnow()
+            )
+            session.add(package)
+            session.commit()
+            session.refresh(package)
+        else:
+            package = session.exec(select(Package)).first()
+
+        # Create payment
+        if not session.exec(select(Payment)).first() and package and parent:
+            payment = Payment(
+                user_id=parent.id,
+                package_id=package.id,
+                amount=package.price,
+                method='PayPOS',
+                status='Success',
+                transaction_id=f'PAYPOS_{parent.id}_{package.id}_001',
+                transaction_date=datetime.utcnow(),
+                expiry_date=datetime.utcnow() + timedelta(days=20)
+            )
+            session.add(payment)
             session.commit()
 
-        if not session.exec(select(Payment)).first():
-            session.execute(text("""
-                INSERT INTO [Payment] (user_id, package_id, amount, method, status, transaction_id, transaction_date, expiry_date)
-                SELECT u.id, p.id, p.price, N'PayPOS', N'Success',
-                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_001',
-                    DATEADD(day, -10, GETDATE()), DATEADD(day, 20, GETDATE())
-                FROM [User] u, [Package] p WHERE u.email = 'parent@example.com' AND p.name = N'Gói Dịch Vụ Trẻ Em'
-                UNION ALL
-                SELECT u.id, p.id, p.price, N'PayPOS', N'Success',
-                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_002',
-                    DATEADD(day, -5, GETDATE()), DATEADD(day, 15, GETDATE())
-                FROM [User] u, [Package] p WHERE u.email = 'school@example.com' AND p.name = N'test'
-                UNION ALL
-                SELECT u.id, p.id, p.price, N'PayPOS', N'Pending',
-                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_003',
-                    GETDATE(), NULL
-                FROM [User] u, [Package] p WHERE u.email = 'parent@example.com' AND p.name = N'test'
-                UNION ALL
-                SELECT u.id, p.id, p.price, N'PayPOS', N'Failed',
-                    N'PAYPOS_' + CAST(u.id AS VARCHAR) + '_' + CAST(p.id AS VARCHAR) + '_004',
-                    DATEADD(day, -3, GETDATE()), NULL
-                FROM [User] u, [Package] p WHERE u.email = 'admin@example.com' AND p.name = N'Gói Dịch Vụ Trẻ Em'
-            """))
-            session.commit()
-
-            session.execute(text("""
-                UPDATE [User] SET active_package_id = (SELECT id FROM [Package] WHERE name = N'Gói Dịch Vụ Trẻ Em'),
-                                  package_expiry_date = DATEADD(day, 20, GETDATE()),
-                                  is_active_package = 1
-                WHERE email = 'parent@example.com'
-            """))
-            session.commit()
-
-            session.execute(text("""
-                UPDATE [User] SET active_package_id = (SELECT id FROM [Package] WHERE name = N'test'),
-                                  package_expiry_date = DATEADD(day, 15, GETDATE()),
-                                  is_active_package = 1
-                WHERE email = 'school@example.com'
-            """))
-            session.commit()
-        
-        # Tạo camera mẫu
+        # Create camera
         if not session.exec(select(Camera)).first():
-            session.execute(text("""
-                INSERT INTO Camera (name, class_id, rtsp_url, active)
-                VALUES ('Default Camera', NULL, NULL, 1)
-            """))
+            camera = Camera(
+                name='Default Camera',
+                rtsp_url=None,
+                active=True
+            )
+            session.add(camera)
             session.commit()
 
 @app.on_event("startup")
 def on_startup():
-    init_db()
+    try:
+        init_db()
+        print("✅ Database initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Database initialization failed: {e}")
+        print("⚠️ Running without database. Some endpoints may not work.")
+        print("⚠️ To connect to SQL Server:")
+        print("   1. Start SQL Server (or use Azure SQL)")
+        print("   2. For Render production: set environment variable USE_PYMSSQL=true")
 
 # 🔹 Endpoints xác thực
 @app.post('/api/auth/register')
 def register(payload: RegisterIn, bg: BackgroundTasks, session: Session = Depends(get_session)):
-    if session.exec(select(User).where(User.email == payload.email)).first():
-        raise HTTPException(400, "Email already registered")
-    user = User(email=payload.email, full_name=payload.fullName,
-                hashed_password=hash_password(payload.password), role=payload.role)
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    bg.add_task(audit, user.id, "register", f"role={user.role}")
-    return {"msg": "registered", "user_id": user.id}
+    try:
+        if session.exec(select(User).where(User.email == payload.email)).first():
+            raise HTTPException(400, "Email already registered")
+        user = User(email=payload.email, full_name=payload.fullName,
+                    hashed_password=hash_password(payload.password), role=payload.role)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        bg.add_task(audit, user.id, "register", f"role={user.role}")
+        return {"msg": "registered", "user_id": user.id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Register error: {e}")
+        raise HTTPException(503, "Database unavailable")
 
 @app.post('/api/auth/login', response_model=TokenWithRole)
 def login(payload: AuthIn, bg: BackgroundTasks, session: Session = Depends(get_session)):
-    user = session.exec(select(User).where(User.email == payload.email)).first()
-    if not user or not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(401, 'Invalid email or password')
-    token = create_access_token({"user_id": user.id, "role": user.role})
-    bg.add_task(audit, user.id, "login")
-    return {"access_token": token, "token_type": "bearer", "role": user.role}
+    try:
+        user = session.exec(select(User).where(User.email == payload.email)).first()
+        if not user or not verify_password(payload.password, user.hashed_password):
+            raise HTTPException(401, 'Invalid email or password')
+        token = create_access_token({"user_id": user.id, "role": user.role})
+        bg.add_task(audit, user.id, "login")
+        return {"access_token": token, "token_type": "bearer", "role": user.role}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Login error: {e}")
+        raise HTTPException(503, "Database unavailable")
 
 @app.post('/api/auth/forgot-password')
 def forgot_password(bg: BackgroundTasks, email: str = Form(...), session: Session = Depends(get_session)):
@@ -267,8 +331,11 @@ def reset_password(payload: ResetPasswordIn, bg: BackgroundTasks, session: Sessi
         session.commit()
         bg.add_task(audit, user.id, "reset_password")
         return {"msg": "Password updated"}
-    except Exception:
-        raise HTTPException(400, 'Invalid token')
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Reset password error: {e}")
+        raise HTTPException(503, "Database unavailable")
 
 # 🔹 WebSocket
 class ConnectionManager:
