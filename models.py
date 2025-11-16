@@ -68,7 +68,7 @@ class Teacher(SQLModel, table=True):
     phone: Optional[str] = Field(default=None, sa_type=Unicode(20))
     address: Optional[str] = Field(default=None, sa_type=Unicode(500))
     emergency_contact: Optional[str] = Field(default=None, sa_type=Unicode(255))
-    experience: Optional[str] = Field(default=None, sa_type=Unicode)
+    experience: Optional[str] = Field(default=None, sa_type=Unicode(500))
     education_level: Optional[str] = Field(default=None, sa_type=Unicode(255))
     school_id: Optional[int] = Field(default=None, foreign_key="User.id")
 
@@ -156,7 +156,7 @@ class DangerZone(SQLModel, table=True):
     __tablename__ = "DangerZone"
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(sa_type=Unicode(255))
-    coords_json: str = Field(sa_type=Unicode)  # JSON string: "[[x1,y1],[x2,y2],...]"
+    coords_json: str = Field(sa_type=Unicode(1000))  # JSON string: "[[x1,y1],[x2,y2],...]"
     severity: int = 1
 
 # ---------- ALERTS & LOGS ----------

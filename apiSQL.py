@@ -23,6 +23,14 @@ from models import (
     Alert, BehaviorLog, FaceRecognitionData, AuditLog, Package, Payment
 )
 
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv(".env.local")  # Load .env.local first
+    load_dotenv()  # Then load .env as fallback
+except ImportError:
+    pass
+
 # 🔹 Cấu hình
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -31,32 +39,23 @@ SECRET_KEY = os.getenv("SAFENEST_SECRET", "dev-secret-changeme")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-# Database configuration - SQL Server
-DB_SERVER = os.getenv("DB_SERVER", "localhost")
-DB_USER = os.getenv("DB_USER", "")  # Empty for Windows auth
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "apidb")
+# Database configuration - MySQL Railway
+# Use MYSQL_PUBLIC_URL from Railway environment
+# Format: mysql://root:PASSWORD@HOST:PORT/DATABASE
 
-# For Render (production): set USE_PYMSSQL=true để dùng pymssql (pure Python, không cần compile)
-# For local development: dùng pyodbc với Windows Authentication hoặc SQL Server Auth
-USE_PYMSSQL = os.getenv("USE_PYMSSQL", "false").lower() == "true"
+MYSQL_PUBLIC_URL = os.getenv("MYSQL_PUBLIC_URL")
 
-if USE_PYMSSQL:
-    # Render deployment - uses pure Python driver
-    import pymssql
-    DB_URL = f"mssql+pymssql://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}/{DB_NAME}"
-else:
-    # Local development - uses pyodbc với Windows Auth (Trusted_Connection=yes)
-    params = urllib.parse.quote_plus(
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-        f"SERVER={DB_SERVER};"
-        f"DATABASE={DB_NAME};"
-        f"Trusted_Connection=yes;"
-        f"MARS_Connection=yes;"
-        f"fast_executemany=yes;"
-        f"charset=utf8;"
-    )
-    DB_URL = f"mssql+pyodbc:///?odbc_connect={params}"
+if not MYSQL_PUBLIC_URL:
+    # Fallback: build from individual env vars
+    DB_HOST = os.getenv("MYSQLHOST", "localhost")
+    DB_USER = os.getenv("MYSQLUSER", "root")
+    DB_PASSWORD = os.getenv("MYSQLPASSWORD", "")
+    DB_NAME = os.getenv("MYSQLDATABASE", "railway")
+    DB_PORT = os.getenv("MYSQLPORT", "3306")
+    MYSQL_PUBLIC_URL = f"mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+# Convert to SQLAlchemy format
+DB_URL = MYSQL_PUBLIC_URL.replace("mysql://", "mysql+pymysql://")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -70,7 +69,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Tạo engine cho SQL Server
+# Tạo engine cho MySQL
 engine = create_engine(DB_URL, echo=False, pool_pre_ping=True)
 
 # 🔹 Tiện ích
