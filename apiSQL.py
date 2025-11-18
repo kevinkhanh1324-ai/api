@@ -279,15 +279,12 @@ def init_db():
 
 @app.on_event("startup")
 def on_startup():
-    try:
-        init_db()
-        print("✅ Database initialized successfully")
-    except Exception as e:
-        print(f"⚠️ Warning: Database initialization failed: {e}")
-        print("⚠️ Running without database. Some endpoints may not work.")
-        print("⚠️ To connect to SQL Server:")
-        print("   1. Start SQL Server (or use Azure SQL)")
-        print("   2. For Render production: set environment variable USE_PYMSSQL=true")
+    if os.getenv("INIT_DB", "false").lower() == "true":
+        try:
+            init_db()
+            print("✅ DB initialized")
+        except Exception as e:
+            print(f"❌ DB init failed: {e}")
 
 # 🔹 Endpoints xác thực
 @app.post('/api/auth/register')
