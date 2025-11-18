@@ -145,6 +145,7 @@ def require_role(role: str):
     return checker
 
 # 🔹 Khởi tạo DB
+# 🔹 Khởi tạo DB (đã sửa lỗi date_of_birth)
 def init_db():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
@@ -176,9 +177,7 @@ def init_db():
                 phone='+84987654321',
                 address='456 Trần Hưng Đạo, Q1, HCM'
             )
-            session.add(admin)
-            session.add(parent)
-            session.add(school)
+            session.add_all([admin, parent, school])
             session.commit()
             session.refresh(admin)
             session.refresh(parent)
@@ -220,12 +219,12 @@ def init_db():
         else:
             classroom = session.exec(select(ClassRoom)).first()
 
+        # ✅ FIX: DÙNG datetime THAY VÌ .date()
         # Create child
         if not session.exec(select(Child)).first() and classroom and parent:
-            from datetime import datetime as dt
             child = Child(
                 full_name='Nguyễn Văn B',
-                date_of_birth=dt.strptime('2013-05-26', '%Y-%m-%d').date(),
+                date_of_birth=datetime(2013, 5, 26),  # ← KHÔNG DÙNG .date(), KHÔNG DÙNG strptime
                 class_id=classroom.id,
                 parent_id=parent.id
             )
