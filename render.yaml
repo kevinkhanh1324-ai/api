@@ -4,12 +4,17 @@ services:
     runtime: python
     plan: free
     envVars:
+      # 🔑 BẮT BUỘC: URL kết nối đến Railway MySQL (dùng public proxy)
       - key: MYSQL_PUBLIC_URL
         value: mysql://root:tyDBDKDwgXXuUFhOoeWPFCMELNYvwdYI@turntable.proxy.rlwy.net:18759/railway
+
+      # 🔒 Secret key cho JWT (nên đổi thành chuỗi mạnh trước khi production)
       - key: SAFENEST_SECRET
-        value: your_strong_secret_here
+        value: dev-secret-changeme
+
+      # 🐍 Phiên bản Python
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: "3.11.0"
 
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn apiSQL:app --host 0.0.0.0 --port $PORT"
