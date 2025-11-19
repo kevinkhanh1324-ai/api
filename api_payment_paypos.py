@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from models import Payment, Package, User
 from apiSQL import get_session, require_role, get_current_user, get_current_user_optional
 from paypos_client import paypos_client
+from paypos_config import PAYPOS_CONFIG
 import logging
 import json
 
@@ -109,10 +110,14 @@ def create_paypos_payment(
         session.commit()
         session.refresh(payment)
 
+        # Sử dụng return_url và cancel_url từ config (đã deploy lên Vercel)
+        return_url = f"{PAYPOS_CONFIG['return_url']}/{payment.id}"
+        cancel_url = PAYPOS_CONFIG['cancel_url']
+        
         return _create_payos_order(
             payment, package,
-            f"http://localhost:3000/payment/success/{payment.id}",
-            "http://localhost:3000/payment/cancel"
+            return_url,
+            cancel_url
         )
 
     except HTTPException:
@@ -142,10 +147,14 @@ async def create_payos_order_for_existing_payment(
         if not package:
             raise HTTPException(500, "Package not found")
 
+        # Sử dụng return_url và cancel_url từ request hoặc fallback về config
+        return_url = data.get("return_url") or f"{PAYPOS_CONFIG['return_url']}/{payment.id}"
+        cancel_url = data.get("cancel_url") or PAYPOS_CONFIG['cancel_url']
+        
         return _create_payos_order(
             payment, package,
-            data.get("return_url", ""),
-            data.get("cancel_url", "")
+            return_url,
+            cancel_url
         )
 
     except HTTPException:
