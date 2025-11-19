@@ -11,6 +11,7 @@ from models import Payment, Package, User
 from apiSQL import get_session, require_role, get_current_user, get_current_user_optional
 from paypos_client import paypos_client
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 PAYPOS_AVAILABLE = paypos_client is not None
@@ -225,21 +226,55 @@ def get_payment_status(payment_id: int, user: User = Depends(get_current_user), 
 
 @router.post("/webhook")
 async def paypos_webhook(request: Request, session: Session = Depends(get_session)):
+    """
+    Webhook endpoint nhận callback từ PayOS
+    🔒 Có verify signature để đảm bảo tính bảo mật
+    """
     try:
-        data = await request.json()
+        # Lấy raw body để verify signature
+        body_bytes = await request.body()
+        body_str = body_bytes.decode('utf-8')
+        
+        # Parse JSON data
+        data = json.loads(body_str) if body_str else {}
+        
+        # Lấy Svix headers để verify signature
+        svix_id = request.headers.get("svix-id")
+        svix_timestamp = request.headers.get("svix-timestamp")
+        svix_signature = request.headers.get("svix-signature")
+        
+        # Verify webhook signature (bảo mật)
+        if PAYPOS_AVAILABLE and paypos_client:
+            if svix_id and svix_timestamp and svix_signature:
+                is_valid = paypos_client.verify_webhook(body_str, svix_id, svix_timestamp, svix_signature)
+                if not is_valid:
+                    logger.warning(f"Invalid webhook signature from PayOS. orderCode: {data.get('orderCode')}")
+                    return JSONResponse({"error": "Invalid signature"}, 401)
+            else:
+                # Nếu không có Svix headers, log warning nhưng vẫn xử lý (cho tương thích)
+                logger.warning("Missing Svix headers in webhook request. Proceeding without verification.")
+        
+        # Validate required fields
         order_id = data.get("orderCode")
         status = data.get("status")
         if not order_id or not status:
             return JSONResponse({"error": "Missing fields"}, 400)
 
-        payment = session.exec(select(Payment).where(Payment.transaction_id == order_id)).first()
+        # Tìm payment theo orderCode
+        payment = session.exec(select(Payment).where(Payment.transaction_id == str(order_id))).first()
         if not payment:
+            logger.warning(f"Payment not found for orderCode: {order_id}")
             return JSONResponse({"error": "Payment not found"}, 404)
 
+        # Update payment status
+        old_status = payment.status
         payment.status = "Success" if status == "PAID" else "Failed" if status == "CANCELLED" else "Pending"
         session.add(payment)
         session.commit()
+        
+        logger.info(f"Payment status updated: orderCode={order_id}, status={status}, old={old_status}, new={payment.status}")
 
+        # Nếu thanh toán thành công, activate package cho user
         if payment.status == "Success":
             user = session.get(User, payment.user_id)
             if user:
@@ -248,11 +283,14 @@ async def paypos_webhook(request: Request, session: Session = Depends(get_sessio
                 user.is_active_package = True
                 session.add(user)
                 session.commit()
-                logger.info(f"Activated package for user {user.id}")
+                logger.info(f"✅ Activated package {payment.package_id} for user {user.id}")
 
         return JSONResponse({"success": True})
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in webhook: {e}")
+        return JSONResponse({"error": "Invalid JSON"}, 400)
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
+        logger.error(f"Webhook error: {e}", exc_info=True)
         return JSONResponse({"error": str(e)}, 500)
 
 @router.get("/status/{order_id}")

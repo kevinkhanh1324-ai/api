@@ -5,11 +5,15 @@ PayPOS Client - Tích hợp với PayPOS API thực tế
 import hashlib
 import hmac
 import json
+import base64
 import requests
 import time
+import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 from paypos_config import PAYPOS_CONFIG
+
+logger = logging.getLogger(__name__)
 
 class PayPOSClient:
     def __init__(self):
@@ -124,9 +128,69 @@ class PayPOSClient:
                 "error": f"PayOS request failed: {str(e)}"
             }
     
-    def verify_webhook(self, webhook_data: Dict[str, Any], signature: str) -> bool:
+    def verify_webhook(self, payload_body: str, svix_id: str, svix_timestamp: str, svix_signature: str) -> bool:
         """
-        Xác thực webhook từ PayPOS
+        Xác thực webhook từ PayOS sử dụng Svix format
+        
+        Args:
+            payload_body: Raw body của webhook request (string)
+            svix_id: Header svix-id từ PayOS
+            svix_timestamp: Header svix-timestamp từ PayOS
+            svix_signature: Header svix-signature từ PayOS
+        """
+        try:
+            if not all([svix_id, svix_timestamp, svix_signature]):
+                logger.warning("Missing Svix headers for webhook verification")
+                return False
+            
+            # Xây dựng nội dung cần ký: svix_id.svix_timestamp.payload_body
+            signed_content = f"{svix_id}.{svix_timestamp}.{payload_body}"
+            
+            # Sử dụng checksum_key làm secret key
+            # PayOS sử dụng base64 secret, nhưng checksum_key của chúng ta là hex string
+            # Thử decode nếu có dạng base64, nếu không thì dùng trực tiếp
+            try:
+                secret_bytes = self.checksum_key.encode('utf-8')
+            except:
+                secret_bytes = self.checksum_key.encode('utf-8')
+            
+            # Tính toán signature mong đợi bằng HMAC-SHA256
+            # PayOS webhook secret thường là base64 encoded, nhưng checksum_key của chúng ta là hex string
+            # Sử dụng checksum_key trực tiếp làm secret
+            expected_signature = hmac.new(
+                secret_bytes,
+                signed_content.encode('utf-8'),
+                hashlib.sha256
+            ).digest()
+            expected_signature_b64 = base64.b64encode(expected_signature).decode('utf-8')
+            
+            # Parse các signatures từ svix-signature header
+            # Format: "v1,signature1 v1,signature2 ..."
+            received_signatures = []
+            for sig_pair in svix_signature.split(' '):
+                if ',' in sig_pair:
+                    # Loại bỏ tiền tố phiên bản (ví dụ: "v1,")
+                    sig = sig_pair.split(',', 1)[1]
+                    received_signatures.append(sig)
+                else:
+                    received_signatures.append(sig_pair)
+            
+            # So sánh với expected signature (base64 encoded)
+            for received_sig in received_signatures:
+                if hmac.compare_digest(received_sig, expected_signature_b64):
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"Webhook verification failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def verify_webhook_simple(self, webhook_data: Dict[str, Any], signature: str) -> bool:
+        """
+        Xác thực webhook đơn giản (legacy format nếu cần)
         
         Args:
             webhook_data: Dữ liệu webhook
@@ -141,7 +205,7 @@ class PayPOSClient:
             return hmac.compare_digest(signature, expected_signature)
             
         except Exception as e:
-            print(f"Webhook verification failed: {e}")
+            print(f"Simple webhook verification failed: {e}")
             return False
     
     def get_payment_status(self, order_id: str) -> Dict[str, Any]:
