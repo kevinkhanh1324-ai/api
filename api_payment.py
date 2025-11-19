@@ -99,6 +99,70 @@ def get_user_payments(
     
     # Check if user can access this data
     if user.role == "admin" or user.id == user_id:
+        # ✅ Sync pending payments từ PayOS trước khi lấy payment history
+        try:
+            from paypos_client import paypos_client
+            from datetime import datetime, timedelta
+            
+            # Lấy các pending payments có transaction_id là numeric (orderCode từ PayOS)
+            pending_payments = session.exec(
+                select(Payment).where(
+                    Payment.user_id == user_id,
+                    Payment.status == "Pending",
+                    Payment.method == "PayPOS"
+                )
+            ).all()
+            
+            # Sync mỗi pending payment với PayOS API
+            for payment in pending_payments:
+                try:
+                    # Chỉ sync nếu transaction_id là numeric (orderCode từ PayOS)
+                    if payment.transaction_id and payment.transaction_id.isdigit():
+                        payos_result = paypos_client.get_payment_status(payment.transaction_id)
+                        
+                        if payos_result.get("success"):
+                            payos_response = payos_result.get("data", {})
+                            if isinstance(payos_response, dict):
+                                response_code = payos_response.get("code")
+                                payos_data = payos_response.get("data", payos_response)
+                                payos_status = None
+                                if isinstance(payos_data, dict):
+                                    payos_status = (
+                                        payos_data.get("status") or 
+                                        payos_data.get("orderStatus") or 
+                                        payos_data.get("transactionStatus")
+                                    )
+                                
+                                # Nếu PayOS confirm thanh toán thành công
+                                if response_code == "00" or payos_status == "PAID":
+                                    payment.status = "Success"
+                                    session.add(payment)
+                                    session.commit()
+                                    
+                                    # Activate package
+                                    user_obj = session.get(User, payment.user_id)
+                                    if user_obj:
+                                        user_obj.active_package_id = payment.package_id
+                                        user_obj.package_expiry_date = datetime.utcnow() + timedelta(days=30)
+                                        user_obj.is_active_package = True
+                                        session.add(user_obj)
+                                        session.commit()
+                                elif payos_status == "CANCELLED":
+                                    payment.status = "Failed"
+                                    session.add(payment)
+                                    session.commit()
+                except Exception as e:
+                    # Log error nhưng không throw, tiếp tục với payment khác
+                    import logging
+                    logging.getLogger(__name__).warning(f"Error syncing payment {payment.id}: {e}")
+        except ImportError:
+            # PayOS client không available, bỏ qua sync
+            pass
+        except Exception as e:
+            # Log error nhưng không throw
+            import logging
+            logging.getLogger(__name__).warning(f"Error in payment sync: {e}")
+        
         payments = session.exec(
             select(Payment, Package)
             .join(Package, Payment.package_id == Package.id)

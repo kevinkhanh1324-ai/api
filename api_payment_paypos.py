@@ -312,10 +312,74 @@ async def paypos_webhook(request: Request, session: Session = Depends(get_sessio
 
 @router.get("/status/{order_id}")
 def get_payment_by_order_id(order_id: str, session: Session = Depends(get_session)):
-    payment = session.exec(select(Payment).where(Payment.transaction_id == order_id)).first()
+    """
+    Lấy payment status theo orderCode
+    ✅ Tự động sync status từ PayOS nếu payment vẫn pending
+    """
+    payment = session.exec(select(Payment).where(Payment.transaction_id == str(order_id))).first()
     if not payment:
         return {"success": False, "error": "Payment not found"}
+    
     package = session.get(Package, payment.package_id)
+    
+    # ✅ Nếu payment vẫn pending, check status từ PayOS API
+    if payment.status == "Pending" and PAYPOS_AVAILABLE and paypos_client:
+        try:
+            logger.info(f"Checking payment status from PayOS for orderCode: {order_id}")
+            payos_result = paypos_client.get_payment_status(order_id)
+            
+            if payos_result.get("success"):
+                payos_response = payos_result.get("data", {})
+                
+                # PayOS API response format: { code: "00", data: { status: "PAID", ... } }
+                # Hoặc: { code: "00", data: { ... } } với status trong data
+                if isinstance(payos_response, dict):
+                    # Check response code
+                    response_code = payos_response.get("code")
+                    payos_data = payos_response.get("data", payos_response)  # Fallback nếu không có nested data
+                    
+                    # Parse status từ PayOS response
+                    # PayOS có thể trả về: status, orderStatus, transactionStatus, etc.
+                    payos_status = None
+                    if isinstance(payos_data, dict):
+                        payos_status = (
+                            payos_data.get("status") or 
+                            payos_data.get("orderStatus") or 
+                            payos_data.get("transactionStatus") or
+                            payos_data.get("transactionStatusDescription")
+                        )
+                    
+                    # Nếu response_code = "00" hoặc status = "PAID", thanh toán thành công
+                    if (response_code == "00" or payos_status == "PAID") and payment.status != "Success":
+                        # PayOS confirm thanh toán thành công, update payment
+                        old_status = payment.status
+                        payment.status = "Success"
+                        session.add(payment)
+                        session.commit()
+                        
+                        # Activate package cho user
+                        user = session.get(User, payment.user_id)
+                        if user:
+                            user.active_package_id = payment.package_id
+                            user.package_expiry_date = datetime.utcnow() + timedelta(days=30)
+                            user.is_active_package = True
+                            session.add(user)
+                            session.commit()
+                            logger.info(f"✅ Synced and activated package {payment.package_id} for user {user.id}")
+                        
+                        logger.info(f"✅ Synced payment {payment.id} status from PayOS: {old_status} -> Success (orderCode: {order_id})")
+                    elif payos_status == "CANCELLED" and payment.status != "Failed":
+                        old_status = payment.status
+                        payment.status = "Failed"
+                        session.add(payment)
+                        session.commit()
+                        logger.info(f"✅ Synced payment {payment.id} status from PayOS: {old_status} -> Failed")
+                    else:
+                        logger.info(f"Payment {payment.id} still pending. PayOS status: {payos_status}, response_code: {response_code}")
+        except Exception as e:
+            logger.error(f"Error syncing payment status from PayOS: {e}")
+            # Không throw error, chỉ log và trả về status hiện tại
+    
     return {
         "success": True,
         "payment": {
@@ -324,7 +388,8 @@ def get_payment_by_order_id(order_id: str, session: Session = Depends(get_sessio
             "amount": payment.amount,
             "package_name": package.name if package else "Unknown",
             "transaction_id": payment.transaction_id,
-            "created_at": payment.transaction_date
+            "created_at": payment.transaction_date,
+            "expiry_date": payment.expiry_date if hasattr(payment, 'expiry_date') else None
         }
     }
 
