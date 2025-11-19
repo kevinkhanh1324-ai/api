@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Camera Test</title>
+</head>
+<body>
+    <h1>Camera Test</h1>
+    <video id="video" width="640" height="480" autoplay muted></video>
+    <br>
+    <button onclick="startCamera()">Start Camera</button>
+    <button onclick="stopCamera()">Stop Camera</button>
+    
+    <script>
+        let stream = null;
+        
+        async function startCamera() {
+            try {
+                console.log("Getting user media...");
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                console.log("Got stream:", stream);
+                
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    console.log("Video metadata loaded");
+                    console.log("Video dimensions:", video.videoWidth, "x", video.videoHeight);
+                };
+                
+                video.oncanplay = () => {
+                    console.log("Video can play");
+                };
+                
+                console.log("Camera started successfully");
+            } catch (error) {
+                console.error("Error starting camera:", error);
+            }
+        }
+        
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                document.getElementById('video').srcObject = null;
+                console.log("Camera stopped");
+            }
+        }
+    </script>
+</body>
+</html>
