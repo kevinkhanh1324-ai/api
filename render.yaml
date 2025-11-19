@@ -15,6 +15,14 @@ services:
       # 🐍 Phiên bản Python
       - key: PYTHON_VERSION
         value: "3.11.0"
+      
+      # 💳 PayOS Configuration
+      - key: PAYPOS_WEBHOOK_URL
+        value: "https://safenestai.onrender.com/api/paypos/webhook"
+      - key: PAYPOS_RETURN_URL
+        value: "https://demo-exe.vercel.app/payment/success"
+      - key: PAYPOS_CANCEL_URL
+        value: "https://demo-exe.vercel.app/payment/cancel"
 
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn apiSQL:app --host 0.0.0.0 --port $PORT"
+    startCommand: "python -m uvicorn apiSQL:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 75 --log-level info"
