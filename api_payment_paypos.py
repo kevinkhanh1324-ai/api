@@ -48,6 +48,14 @@ def _create_payos_order(payment: Payment, package: Package, return_url: str, can
         logger.info(f"PayOS result: {result}")
 
         if result and result.get("success"):
+            # ✅ QUAN TRỌNG: Update transaction_id với orderCode từ PayOS
+            # PayOS trả về orderCode (ví dụ: 27396828) và webhook sẽ gửi lại orderCode này
+            # Cần update để webhook có thể tìm thấy payment
+            payment.transaction_id = str(result["order_id"])
+            session.add(payment)
+            session.commit()
+            logger.info(f"Updated payment {payment.id} transaction_id to PayOS orderCode: {result['order_id']}")
+            
             return {
                 "payment_id": payment.id,
                 "amount": payment.amount,

@@ -224,6 +224,7 @@ def get_payment_details(
         "method": payment.method,
         "status": payment.status,
         "transaction_date": payment.transaction_date,
+        "created_at": payment.transaction_date,  # Alias for frontend compatibility
         "expiry_date": payment.expiry_date,
         "transaction_id": payment.transaction_id
     }
