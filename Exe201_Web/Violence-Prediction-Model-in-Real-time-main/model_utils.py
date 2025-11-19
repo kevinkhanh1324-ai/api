@@ -4,7 +4,8 @@ from ultralytics import YOLO
 import time
 
 # Load YOLO model khi import module
-MODEL_PATH = r"D:\hoctrentruong\EXE\api\Exe201_Web\Violence-Prediction-Model-in-Real-time-main\weight\best.pt"    # 👉 chỉnh path tới file weight
+import os
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "weight", "best.pt")   # 👉 sử dụng relative path
 model = YOLO(MODEL_PATH)
 model_names = model.names
 
