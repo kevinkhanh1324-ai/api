@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Import PayPOS client at module level to avoid import issues
 try:
     from paypos_client import paypos_client
+    from paypos_config import PAYPOS_CONFIG
     PAYPOS_AVAILABLE = True
     logger.info("PayPOS client imported successfully")
 except ImportError as e:
@@ -147,13 +148,17 @@ def purchase_package(
     if PAYPOS_AVAILABLE:
         try:
             # Prepare PayPOS order data
+            # Sử dụng return_url và cancel_url từ config (đã deploy lên Vercel)
+            return_url = f"{PAYPOS_CONFIG['return_url']}/{payment.id}"
+            cancel_url = PAYPOS_CONFIG['cancel_url']
+            
             order_data = {
                 "order_id": payment.transaction_id,
                 "amount": int(package.price),
                 "description": f"Thanh toán gói {package.name}"[:25],
                 "package_name": package.name,
-                "return_url": f"http://localhost:3000/payment/success/{payment.id}",
-                "cancel_url": f"http://localhost:3000/payment/cancel"
+                "return_url": return_url,
+                "cancel_url": cancel_url
             }
             
             logger.info(f"Creating PayOS payment for order: {order_data}")
@@ -161,6 +166,14 @@ def purchase_package(
             logger.info(f"PayOS result: {paypos_result}")
             
             if paypos_result and paypos_result.get("success"):
+                # ✅ QUAN TRỌNG: Update transaction_id với orderCode từ PayOS
+                # PayOS trả về orderCode (ví dụ: 27904233) và webhook sẽ gửi lại orderCode này
+                # Cần update để webhook có thể tìm thấy payment
+                payment.transaction_id = str(paypos_result["order_id"])
+                session.add(payment)
+                session.commit()
+                logger.info(f"Updated payment {payment.id} transaction_id to PayOS orderCode: {paypos_result['order_id']}")
+                
                 return {
                     **base_response,
                     "payment_url": paypos_result["payment_url"],
@@ -302,13 +315,17 @@ def retry_payment(payment_id: int, user: User = Depends(get_current_user), sessi
     # Create PayPOS payment link
     if PAYPOS_AVAILABLE:
         try:
+            # Sử dụng return_url và cancel_url từ config (đã deploy lên Vercel)
+            return_url = f"{PAYPOS_CONFIG['return_url']}/{payment.id}"
+            cancel_url = PAYPOS_CONFIG['cancel_url']
+            
             order_data = {
                 "order_id": payment.transaction_id,
                 "amount": int(payment.amount),
                 "description": f"Thanh toán gói {package.name}"[:25],
                 "package_name": package.name,
-                "return_url": f"http://localhost:3000/payment/success/{payment.id}",
-                "cancel_url": f"http://localhost:3000/payment/cancel"
+                "return_url": return_url,
+                "cancel_url": cancel_url
             }
             
             logger.info(f"Retrying PayOS payment for order: {order_data}")
@@ -316,6 +333,14 @@ def retry_payment(payment_id: int, user: User = Depends(get_current_user), sessi
             logger.info(f"PayOS retry result: {paypos_result}")
             
             if paypos_result and paypos_result.get("success"):
+                # ✅ QUAN TRỌNG: Update transaction_id với orderCode từ PayOS
+                # PayOS trả về orderCode (ví dụ: 27904233) và webhook sẽ gửi lại orderCode này
+                # Cần update để webhook có thể tìm thấy payment
+                payment.transaction_id = str(paypos_result["order_id"])
+                session.add(payment)
+                session.commit()
+                logger.info(f"Updated payment {payment.id} transaction_id to PayOS orderCode: {paypos_result['order_id']}")
+                
                 return {
                     "payment_id": payment.id,
                     "amount": payment.amount,

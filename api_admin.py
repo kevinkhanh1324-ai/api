@@ -129,6 +129,33 @@ def admin_get_user_packages(
     session: Session = Depends(get_session)
 ):
     """Admin xem danh sách tất cả user packages (parent/school có gói)"""
+    # ✅ Sync: Activate user từ payments có status "Success" nhưng user chưa được activate
+    # Điều này đảm bảo payments thành công sẽ được activate ngay cả khi webhook không chạy
+    successful_payments = session.exec(
+        select(Payment).where(
+            Payment.status == "Success",
+            Payment.method == "PayPOS"
+        ).order_by(Payment.transaction_date.desc())
+    ).all()
+    
+    synced_count = 0
+    for payment in successful_payments:
+        payment_user = session.get(User, payment.user_id)
+        if payment_user and (not payment_user.active_package_id or payment_user.active_package_id != payment.package_id):
+            # User chưa có package hoặc package khác -> activate package từ payment
+            payment_user.active_package_id = payment.package_id
+            # Tính expiry date từ payment transaction_date + 30 ngày
+            if payment.transaction_date:
+                payment_user.package_expiry_date = payment.transaction_date + timedelta(days=30)
+            else:
+                payment_user.package_expiry_date = dt.utcnow() + timedelta(days=30)
+            payment_user.is_active_package = True
+            session.add(payment_user)
+            synced_count += 1
+    
+    if synced_count > 0:
+        session.commit()
+    
     # Lấy tất cả user có active package
     users_with_packages = session.exec(
         select(User).where(
