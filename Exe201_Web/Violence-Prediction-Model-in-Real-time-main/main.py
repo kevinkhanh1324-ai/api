@@ -5,7 +5,7 @@ from model_utils import detect_violence
 
 app = FastAPI(title="Violence Detection API")
 
-SAFENEST_API_URL = "http://localhost:8000"
+SAFENEST_API_URL = "https://safenestai.onrender.com"
 
 DEFAULT_CHILD_ID = 1
 DEFAULT_CAMERA_ID = 1
