@@ -468,7 +468,6 @@ from api_package_service import router as package_service_router
 from api_package import router as package_router
 from api_payment import router as payment_router
 from api_payment_paypos import router as payment_paypos_router
-from api_mongodb_test import router as mongodb_test_router
 
 app.include_router(parent_router)
 app.include_router(admin_router)
@@ -477,4 +476,3 @@ app.include_router(package_service_router)
 app.include_router(package_router)
 app.include_router(payment_router)
 app.include_router(payment_paypos_router)
-app.include_router(mongodb_test_router)

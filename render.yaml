@@ -8,12 +8,6 @@ services:
       - key: MYSQL_PUBLIC_URL
         value: mysql://root:tyDBDKDwgXXuUFhOoeWPFCMELNYvwdYI@turntable.proxy.rlwy.net:18759/railway
 
-      # 🍃 MongoDB Atlas Configuration
-      - key: MONGODB_URI
-        value: mongodb+srv://admin:Nguyendat03@cluster0.frzsrrx.mongodb.net/?appName=Cluster0
-      - key: MONGODB_DB_NAME
-        value: exe201_db
-
       # 🔒 Secret key cho JWT (nên đổi thành chuỗi mạnh trước khi production)
       - key: SAFENEST_SECRET
         value: dev-secret-changeme
